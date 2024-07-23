@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 import pandas as pd
 import itertools
+import numpy as np
 import statsmodels.api as sm
 import io
+import os
 
 app = Flask(__name__)
 
@@ -13,9 +15,8 @@ def read_data(file, date_col, value_col):
     df.set_index(date_col, inplace=True)
     return df
 
-def preprocess_data(df, freq='MS'):
-    # Resample to specified frequency
-    y = df.resample(freq).mean()
+def preprocess_data(df):
+    y = df.resample('MS').mean()
     return y
 
 def train_model(y):
@@ -44,7 +45,7 @@ def train_model(y):
     
     return result
 
-def forecast(result, steps=30):
+def forecast(result, steps=120):
     pred_uc = result.get_forecast(steps=steps)
     pred_ci = pred_uc.conf_int()
     
@@ -63,32 +64,13 @@ def forecast_endpoint():
     value_col = request.form['value_col']
     
     try:
+        # Read and process the file
         df = read_data(file, date_col, value_col)
         y = preprocess_data(df)
         result = train_model(y)
         pred_ci = forecast(result, steps=120)
 
-        result_json = pred_ci.reset_index().to_json(orient="records", date_format="iso")
-
-        return jsonify(result_json)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/dayforecast', methods=['POST'])
-def dayforecast_endpoint():
-    if 'file' not in request.files or 'date_col' not in request.form or 'value_col' not in request.form:
-        return jsonify({"error": "Missing file or parameters"}), 400
-    
-    file = request.files['file']
-    date_col = request.form['date_col']
-    value_col = request.form['value_col']
-    
-    try:
-        df = read_data(file, date_col, value_col)
-        y = preprocess_data(df, freq='D')  # Use daily frequency
-        result = train_model(y)
-        pred_ci = forecast(result, steps=30)  # Forecasting for the next 30 days
-
+        # Convert prediction to JSON
         result_json = pred_ci.reset_index().to_json(orient="records", date_format="iso")
 
         return jsonify(result_json)
@@ -96,4 +78,5 @@ def dayforecast_endpoint():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.getenv("PORT", 5000))  # Default to port 5000 if not set
+    app.run(host='0.0.0.0', port=port, debug=False)
