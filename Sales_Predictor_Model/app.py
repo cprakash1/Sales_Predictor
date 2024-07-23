@@ -73,9 +73,21 @@ def forecast_endpoint():
         pred_ci = forecast(result, steps=120)
 
         # Convert prediction to JSON
-        result_json = pred_ci.reset_index().to_json(orient="records", date_format="iso")
+        forecast_data = pred_ci.reset_index().to_json(orient="records", date_format="iso")
+        
+        # Filter past data to include only relevant columns
+        past_df = df.reset_index()[[date_col, value_col]]
+        
+        
+        # Convert past data to JSON
+        past_data = past_df.to_json(orient="records", date_format="iso")
+        
+        response = {
+            "past": past_data,
+            "predicted": forecast_data
+        }
 
-        return jsonify(result_json)
+        return jsonify(response)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
