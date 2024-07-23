@@ -1,0 +1,6 @@
+Flask==2.2.3
+pandas==2.0.1
+numpy==1.25.0
+statsmodels==0.14.0
+matplotlib==3.7.1
+Werkzeug==2.3.7
