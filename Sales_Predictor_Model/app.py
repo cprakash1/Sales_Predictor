@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import pandas as pd
 import itertools
 import numpy as np
@@ -7,6 +8,7 @@ import io
 import os
 
 app = Flask(__name__)
+CORS(app)  # Allow CORS for all origins
 
 def read_data(file, date_col, value_col):
     df = pd.read_csv(file)
@@ -39,7 +41,7 @@ def train_model(y):
                     best_seasonal_pdq = param_seasonal
             except:
                 continue
-    
+     
     model = sm.tsa.statespace.SARIMAX(y, order=best_pdq, seasonal_order=best_seasonal_pdq)
     result = model.fit()
     
