@@ -64,7 +64,8 @@ const App = () => {
 
     try {
       const response = await axios.post(
-        `https://sales-predictor-n89m.onrender.com/forecast/${selectedModel}`,
+        // `https://sales-predictor-n89m.onrender.com/forecast/${selectedModel}`,
+        `https://api-deployment-d7fy.onrender.com/forecast/${selectedModel}`,
         formData,
         {
           headers: {
