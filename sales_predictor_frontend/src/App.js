@@ -16,6 +16,8 @@ import {
 } from "chart.js";
 import "./App.css"; // Import custom CSS for styling
 import "chartjs-adapter-date-fns";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 ChartJS.register(
   CategoryScale,
@@ -35,6 +37,7 @@ const App = () => {
   const [dateCol, setDateCol] = useState("");
   const [valueCol, setValueCol] = useState("");
   const [loading, setLoading] = useState(false);
+  const [model, setModel] = useState(null);
 
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
@@ -48,9 +51,11 @@ const App = () => {
     setValueCol(e.target.value);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (selectedModel) => {
     setLoading(true);
+    setModel(selectedModel);
+    setData([]);
+    setPastData([]);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -59,8 +64,7 @@ const App = () => {
 
     try {
       const response = await axios.post(
-        "http://127.0.0.1:5000/forecast",
-        // "https://sales-predictor-n89m.onrender.com/forecast",
+        `https://sales-predictor-n89m.onrender.com/forecast/${selectedModel}`,
         formData,
         {
           headers: {
@@ -70,18 +74,48 @@ const App = () => {
         }
       );
 
-      console.log("Response received:", response);
-
       const parsedData = response.data;
-      console.log("Parsed Data:", parsedData);
 
-      setData(JSON.parse(parsedData.predicted));
-      setPastData(JSON.parse(parsedData.past));
+      const forecastData = JSON.parse(parsedData.predicted);
+      const pastDataRaw = JSON.parse(parsedData.past);
+
+      const monthlyData = aggregateMonthlyData(pastDataRaw);
+
+      setData(forecastData);
+      setPastData(monthlyData);
     } catch (error) {
       console.error("Error fetching forecast data:", error);
+      alert(
+        "An error occurred: " + (error.response?.data?.error || error.message)
+      );
     } finally {
       setLoading(false);
     }
+  };
+
+  const aggregateMonthlyData = (data) => {
+    const groupedData = {};
+
+    data.forEach((item) => {
+      const date = new Date(item["Order Date"]);
+      const month = date.getFullYear() + "-" + (date.getMonth() + 1);
+
+      if (!groupedData[month]) {
+        groupedData[month] = [];
+      }
+      groupedData[month].push(item["Sales"]);
+    });
+
+    const monthlyData = Object.keys(groupedData).map((month) => {
+      const values = groupedData[month];
+      const meanValue = values.reduce((a, b) => a + b, 0) / values.length;
+      return {
+        "Order Date": new Date(month + "-01").toISOString().split("T")[0],
+        Sales: meanValue,
+      };
+    });
+
+    return monthlyData;
   };
 
   const downloadExcel = () => {
@@ -91,22 +125,35 @@ const App = () => {
     XLSX.writeFile(wb, "forecast.xlsx");
   };
 
+  const downloadPDF = () => {
+    const chartElement = document.getElementById("chart");
+    html2canvas(chartElement).then((canvas) => {
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF();
+      pdf.text("Forecast Report", 20, 10);
+      pdf.text(`Model Used: ${model}`, 20, 20);
+      pdf.text("Chart:", 20, 30);
+      pdf.addImage(imgData, "PNG", 10, 40, 190, 100); // Adjust size and position
+      pdf.save("report.pdf");
+    });
+  };
+
   // Prepare data for the chart
   const chartData = {
     labels: pastData
       .concat(data.map((item) => ({ "Order Date": item["index"] })))
       .map((item) => item["Order Date"]),
     datasets: [
-      // {
-      //   label: "Past Data",
-      //   data: pastData.map((item) => ({
-      //     x: item["Order Date"], // Use 'Order Date' for x values
-      //     y: item["Sales"], // Use 'Sales' for y values
-      //   })),
-      //   borderColor: "rgba(75,192,192,1)",
-      //   backgroundColor: "rgba(75,192,192,0.2)",
-      //   fill: true,
-      // },
+      {
+        label: "Past Data",
+        data: pastData.map((item) => ({
+          x: item["Order Date"], // Use 'Order Date' for x values
+          y: item["Sales"], // Use 'Sales' for y values
+        })),
+        borderColor: "rgba(75,192,192,1)",
+        backgroundColor: "rgba(75,192,192,0.2)",
+        fill: true,
+      },
       {
         label: "Forecast Data",
         data: data.map((item) => ({
@@ -120,13 +167,26 @@ const App = () => {
     ],
   };
 
+  // Find the minimum and maximum dates from pastData and data
+  const allDates = pastData
+    .map((item) => new Date(item["Order Date"]))
+    .concat(data.map((item) => new Date(item["index"])));
+  const minDate = new Date(Math.min.apply(null, allDates));
+  const maxDate = new Date(Math.max.apply(null, allDates));
+
   const options = {
     scales: {
       x: {
         type: "time", // Set x-axis to time scale
         time: {
-          unit: "day", // Adjust the unit to match your data
+          unit: "month", // Adjust the unit to month
+          tooltipFormat: "MMM yyyy", // Format tooltip as "Month Year"
+          displayFormats: {
+            month: "MMM yyyy", // Display format for months
+          },
         },
+        min: minDate,
+        max: maxDate,
         title: {
           display: true,
           text: "Date",
@@ -143,8 +203,8 @@ const App = () => {
 
   return (
     <div className="app-container">
-      <h1 className="app-header">Forecast Data Uploader</h1>
-      <form className="upload-form" onSubmit={handleSubmit}>
+      <h1 className="app-header">Sales Data Uploader</h1>
+      <form className="upload-form">
         <div className="form-group">
           <label htmlFor="fileInput">Upload CSV File:</label>
           <input
@@ -177,31 +237,36 @@ const App = () => {
             required
           />
         </div>
-        <button type="submit" className="submit-button" disabled={loading}>
-          {loading ? "Processing..." : "Submit"}
-        </button>
+        <div className="button-group">
+          <button
+            type="button"
+            className="submit-button"
+            disabled={loading}
+            onClick={() => handleSubmit("sarima")}
+          >
+            {loading && model === "sarima" ? "Processing..." : "Submit SARIMA"}
+          </button>
+          <button
+            type="button"
+            className="submit-button"
+            disabled={loading}
+            onClick={() => handleSubmit("holt-winters")}
+          >
+            {loading && model === "holt-winters"
+              ? "Processing..."
+              : "Submit Holt-Winters"}
+          </button>
+        </div>
       </form>
+
+      {loading && (
+        <div className="loader-container">
+          <div className="loader"></div>
+        </div>
+      )}
 
       {data.length > 0 && (
         <div className="results-container">
-          <h2>Forecast Data</h2>
-          <table className="results-table">
-            <thead>
-              <tr>
-                <th>Index</th>
-                <th>Predicted Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((row, index) => (
-                <tr key={index}>
-                  <td>{row.index}</td>
-                  <td>{row["Predicted Value"]}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
           <div className="download-buttons">
             <CSVLink
               data={data}
@@ -217,9 +282,29 @@ const App = () => {
             <button onClick={downloadExcel} className="download-button">
               Download Excel
             </button>
+            <button onClick={downloadPDF} className="download-button">
+              Download Graph
+            </button>
           </div>
+          <h2>Forecast Data</h2>
+          <table className="results-table">
+            <thead>
+              <tr>
+                <th>Index</th>
+                <th>Predicted Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row, index) => (
+                <tr key={index}>
+                  <td>{row["index"].split("T")[0]}</td>
+                  <td>{row["Predicted Value"]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-          <div className="chart-container">
+          <div className="chart-container" id="chart">
             <h2>Data Chart</h2>
             <Line data={chartData} options={options} />
           </div>
