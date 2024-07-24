@@ -125,6 +125,23 @@ const App = () => {
     XLSX.writeFile(wb, "forecast.xlsx");
   };
 
+  const setTestData = async () => {
+    try {
+      const response = await fetch("/input.csv");
+      const csvText = await response.text();
+
+      const blob = new Blob([csvText], { type: "text/csv" });
+
+      const file = new File([blob], "input.csv", { type: "text/csv" });
+
+      setFile(file);
+      setDateCol("Order Date");
+      setValueCol("Sales");
+    } catch (error) {
+      console.error("Error fetching or processing file:", error);
+    }
+  };
+
   const downloadPDF = () => {
     const chartElement = document.getElementById("chart");
     html2canvas(chartElement).then((canvas) => {
@@ -255,6 +272,14 @@ const App = () => {
             {loading && model === "holt-winters"
               ? "Processing..."
               : "Submit Holt-Winters"}
+          </button>
+          <button
+            type="button"
+            className="submit-button"
+            disabled={loading}
+            onClick={() => setTestData()}
+          >
+            Set Test Data
           </button>
         </div>
       </form>
